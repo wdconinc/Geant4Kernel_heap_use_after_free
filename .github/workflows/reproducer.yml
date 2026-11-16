@@ -1,0 +1,50 @@
+name: reproducer
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dd4hep-ref:
+        description: 'AIDASoft/DD4hep branch, tag or SHA to test'
+        required: false
+        default: 'master'
+
+jobs:
+  asan:
+    name: ${{ matrix.variant }} (${{ matrix.LCG }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        LCG: ["LCG_110/x86_64-el9-gcc14-opt"]
+        variant: [unfixed, fixed]
+        include:
+        # unfixed: DD4hep as is, ASan must report the heap-use-after-free
+        - variant: unfixed
+          expect: uaf
+        # fixed: DD4hep with fix.patch applied, must run cleanly
+        - variant: fixed
+          expect: clean
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: AIDASoft/DD4hep
+        ref: ${{ inputs.dd4hep-ref || 'master' }}
+        path: DD4hep
+    - name: Apply fix
+      if: matrix.variant == 'fixed'
+      run: git -C DD4hep apply --verbose "${GITHUB_WORKSPACE}/fix.patch"
+    - uses: cvmfs-contrib/github-action-cvmfs@72f2a8d366043978d6aebee154bc9ed321c2f2a8
+    - uses: aidasoft/run-lcg-view@d8db17c61216548c9192889942d46ff2d7c3a3b6
+      with:
+        release-platform: ${{ matrix.LCG }}
+        run: |
+          ./reproduce.sh DD4hep work ${{ matrix.expect }}
+    - name: Upload log
+      if: success() || failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: run-${{ matrix.variant }}
+        path: work/run.log
